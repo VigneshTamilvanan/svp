@@ -1,0 +1,15 @@
+{
+  "name": "svp-functions",
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions — SVP QR signing",
+  "type": "module",
+  "engines": {
+    "node": "22"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "@google-cloud/secret-manager": "^5.0.0",
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^6.0.0"
+  }
+}
