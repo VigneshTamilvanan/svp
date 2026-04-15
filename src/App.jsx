@@ -5,13 +5,9 @@ import PayloadBreakdown from './components/PayloadBreakdown.jsx'
 import { buildDataset, refreshDataset } from './lib/dataset.js'
 import { serialise, assembleFinal } from './lib/sqdsr.js'
 import { sign } from './lib/crypto.js'
-import { getStation } from './constants/stations.js'
 
 const DEFAULT_FORM = {
-  srcCode:       0x01,           // Chennai Airport
-  dstCode:       0x0F,           // Central (MGR)
   balanceRupees: 500,
-  fareRupees:    40,
   mobile:        '9876543210',
   txnRef:        'UPI20260415123456789012',
   refreshSecs:   30,
@@ -55,17 +51,9 @@ export default function App() {
     setLoading(true)
     setError(null)
     try {
-      const src = getStation(Number(form.srcCode))
-      const dst = getStation(Number(form.dstCode))
-
       const dataset = buildDataset({
         ...form,
-        srcCode:       Number(form.srcCode),
-        dstCode:       Number(form.dstCode),
         balanceRupees: Number(form.balanceRupees),
-        fareRupees:    Number(form.fareRupees),
-        srcName:       src?.name ?? '—',
-        dstName:       dst?.name ?? '—',
       })
 
       const plaintext    = serialise(dataset)

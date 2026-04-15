@@ -99,7 +99,7 @@ export function buildVersion() {
 }
 
 // ── TAG 83 — QR Common Data (62 bytes) ───────────────────
-export function buildCommonData({ txnRef, farePaisa, mobile }) {
+export function buildCommonData({ txnRef, mobile }) {
   const serial = makeSerialNo()
   const genDt  = nowSec()
 
@@ -149,8 +149,8 @@ export function buildCommonData({ txnRef, farePaisa, mobile }) {
     {
       name: 'Total Fare',
       size: 4,
-      hex:  toHex(farePaisa, 4),
-      desc: `${farePaisa} paisa = ₹${(farePaisa / 100).toFixed(2)}`,
+      hex:  toHex(0, 4),
+      desc: 'SVP — fare determined at exit by AFC, not fixed at QR generation',
     },
     {
       name: 'Booking Latitude',
@@ -227,7 +227,7 @@ export function buildDynamicData({ svpBalancePaisa }) {
 }
 
 // ── Ticket (28 bytes) ─────────────────────────────────────
-function buildTicket({ srcCode, dstCode, srcName, dstName, farePaisa, svpBalancePaisa, svpAccountId }) {
+function buildTicket({ svpBalancePaisa, svpAccountId }) {
   const actDt     = nowSec()
   const opTktData = toHex(svpBalancePaisa, 4) + toHex(svpAccountId & 0xFFFFFFFF, 4)
 
@@ -244,14 +244,14 @@ function buildTicket({ srcCode, dstCode, srcName, dstName, farePaisa, svpBalance
     {
       name: 'Source Station',
       size: 2,
-      hex:  toHex(srcCode, 2),
-      desc: `${srcName} (code 0x${toHex(srcCode, 2)})`,
+      hex:  toHex(CMRL.ANY_STATION, 2),
+      desc: 'ANY (0x0000) — determined by AFC entry gate at tap-in',
     },
     {
       name: 'Destination Station',
       size: 2,
-      hex:  toHex(dstCode, 2),
-      desc: `${dstName} (code 0x${toHex(dstCode, 2)})`,
+      hex:  toHex(CMRL.ANY_STATION, 2),
+      desc: 'ANY (0x0000) — open journey, determined by AFC exit gate',
     },
     {
       name: 'Activation Datetime',
@@ -274,8 +274,8 @@ function buildTicket({ srcCode, dstCode, srcName, dstName, farePaisa, svpBalance
     {
       name: 'Ticket Fare',
       size: 4,
-      hex:  toHex(farePaisa, 4),
-      desc: `${farePaisa} paisa = ₹${farePaisa / 100} (MSB = paisa denomination)`,
+      hex:  toHex(0, 4),
+      desc: 'SVP — fare not fixed at generation, deducted by AFC at exit based on journey',
     },
     {
       name: 'Validity',
@@ -338,17 +338,12 @@ export function refreshDataset(existingDataset, svpBalancePaisa) {
 
 // ── Assemble full dataset ─────────────────────────────────
 export function buildDataset(formValues) {
-  const {
-    srcCode, dstCode, srcName, dstName,
-    balanceRupees, fareRupees,
-    mobile, txnRef,
-  } = formValues
+  const { balanceRupees, mobile, txnRef } = formValues
 
   const svpBalancePaisa = balanceRupees * 100
-  const farePaisa       = fareRupees * 100
   const svpAccountId    = Math.floor(Math.random() * 0xFFFF) + 1
 
-  const params = { srcCode, dstCode, srcName, dstName, svpBalancePaisa, farePaisa, svpAccountId, mobile, txnRef }
+  const params = { svpBalancePaisa, svpAccountId, mobile, txnRef }
 
   return {
     security:    buildSecurity(),

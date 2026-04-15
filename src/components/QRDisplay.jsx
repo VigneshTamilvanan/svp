@@ -55,7 +55,7 @@ export default function QRDisplay({ result, countdown, refreshSecs }) {
     QRCode.toCanvas(canvasRef.current, result.finalPayload, {
       width: 220,
       margin: 1,
-      color: { dark: '#1a237e', light: '#ffffff' },
+      color: { dark: '#000000', light: '#ffffff' },
       errorCorrectionLevel: 'M',
     })
   }, [result])
@@ -76,20 +76,16 @@ export default function QRDisplay({ result, countdown, refreshSecs }) {
 
   const { dataset, finalPayload } = result
   const serial = dataset.commonData.serial
-  const fare   = dataset.ticketBlock.ticket.find(f => f.name === 'Ticket Fare')
-  const src    = dataset.ticketBlock.ticket.find(f => f.name === 'Source Station')
-  const dst    = dataset.ticketBlock.ticket.find(f => f.name === 'Destination Station')
   const bal    = dataset.dynamicData.fields.find(f => f.name === 'Op-specific Dynamic Data')
 
   const infoRows = [
-    { label: 'From',            value: src?.desc.split(' (')[0],       color: 'blue'  },
-    { label: 'To',              value: dst?.desc.split(' (')[0],       color: 'blue'  },
+    { label: 'Journey',         value: 'ANY → ANY (open SVP)',         color: 'blue'  },
     { label: 'SVP Balance',     value: bal ? `₹${parseInt(bal.hex.slice(0, 8), 16) / 100}` : '—', color: 'green' },
-    { label: 'Fare',            value: fare ? `₹${parseInt(fare.hex, 16) / 100}` : '—' },
-    { label: 'Validity',        value: `${SVP_DEFAULTS.VALIDITY_MINS} min (8 hrs)` },
+    { label: 'Fare',            value: 'Deducted at exit by AFC gate'                  },
+    { label: 'Validity',        value: `${SVP_DEFAULTS.VALIDITY_MINS} min (8 hrs)`    },
     { label: 'Journey Timeout', value: `${SVP_DEFAULTS.DURATION_MINS} min — max fare on timeout` },
-    { label: 'Product',         value: `SVP (0x${toHex(CMRL.PRODUCT_SVP, 2)})` },
-    { label: 'Security',        value: 'RSA-2048 / SHA-256 — Scheme 0x03' },
+    { label: 'Product',         value: `SVP (0x${toHex(CMRL.PRODUCT_SVP, 2)})`        },
+    { label: 'Security',        value: 'RSA-2048 / SHA-256 — Scheme 0x03'             },
   ]
 
   return (

@@ -1,5 +1,3 @@
-import { STATIONS, LINE_ICON } from '../constants/stations.js'
-
 export default function SVPForm({ values, onChange, onGenerate, loading }) {
   const set = (key) => (e) => onChange({ ...values, [key]: e.target.value })
 
@@ -8,45 +6,13 @@ export default function SVPForm({ values, onChange, onGenerate, loading }) {
       <div className="card-title">SVP Configuration</div>
 
       <div className="form-group">
-        <label>Source Station</label>
-        <select value={values.srcCode} onChange={set('srcCode')}>
-          {STATIONS.map(s => (
-            <option key={s.code} value={s.code}>
-              {LINE_ICON[s.line]} {s.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="form-group">
-        <label>Destination Station</label>
-        <select value={values.dstCode} onChange={set('dstCode')}>
-          {STATIONS.map(s => (
-            <option key={s.code} value={s.code}>
-              {LINE_ICON[s.line]} {s.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="form-row-2">
-        <div className="form-group">
-          <label>SVP Balance (₹)</label>
-          <input
-            type="number" min="50" max="10000" step="50"
-            value={values.balanceRupees}
-            onChange={set('balanceRupees')}
-          />
-          <div className="form-hint">Min ₹50 floor always held</div>
-        </div>
-        <div className="form-group">
-          <label>Ticket Fare (₹)</label>
-          <input
-            type="number" min="5" max="200" step="5"
-            value={values.fareRupees}
-            onChange={set('fareRupees')}
-          />
-        </div>
+        <label>SVP Balance (₹)</label>
+        <input
+          type="number" min="50" max="10000" step="50"
+          value={values.balanceRupees}
+          onChange={set('balanceRupees')}
+        />
+        <div className="form-hint">Min ₹50 floor always held. Fare deducted by AFC at exit.</div>
       </div>
 
       <div className="form-group">
