@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import SVPForm from './components/SVPForm.jsx'
 import QRDisplay from './components/QRDisplay.jsx'
 import PayloadBreakdown from './components/PayloadBreakdown.jsx'
+import QRVerifier from './components/QRVerifier.jsx'
 import { buildDataset, refreshDataset } from './lib/dataset.js'
 import { serialise, assembleFinal } from './lib/sqdsr.js'
 import { sign } from './lib/crypto.js'
@@ -13,19 +14,27 @@ const DEFAULT_FORM = {
   refreshSecs:   30,
 }
 
+// Stop auto-refresh after this many minutes of inactivity to avoid runaway Cloud Function charges.
+const SESSION_TIMEOUT_MS = 3 * 60 * 1000  // 3 minutes
+
 export default function App() {
-  const [form,      setForm]      = useState(DEFAULT_FORM)
-  const [result,    setResult]    = useState(null)
-  const [loading,   setLoading]   = useState(false)
-  const [error,     setError]     = useState(null)
-  const [countdown, setCountdown] = useState(0)
+  const [form,           setForm]           = useState(DEFAULT_FORM)
+  const [result,         setResult]         = useState(null)
+  const [loading,        setLoading]        = useState(false)
+  const [error,          setError]          = useState(null)
+  const [countdown,      setCountdown]      = useState(0)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   // Keep a ref to the latest result + form so the auto-refresh closure
   // always sees current values without re-creating the interval.
-  const resultRef = useRef(null)
-  const formRef   = useRef(form)
-  useEffect(() => { resultRef.current = result }, [result])
-  useEffect(() => { formRef.current   = form   }, [form])
+  const resultRef        = useRef(null)
+  const formRef          = useRef(form)
+  const sessionExpiredRef = useRef(false)
+  const sessionStartRef   = useRef(0)
+
+  useEffect(() => { resultRef.current        = result        }, [result])
+  useEffect(() => { formRef.current          = form          }, [form])
+  useEffect(() => { sessionExpiredRef.current = sessionExpired }, [sessionExpired])
 
   // ── Countdown ticker ──────────────────────────────────────
   // Starts (or restarts) whenever a new QR is generated.
@@ -41,7 +50,7 @@ export default function App() {
 
   // ── Auto-refresh when countdown reaches 0 ────────────────
   useEffect(() => {
-    if (countdown <= 0 && resultRef.current && !loading) {
+    if (countdown <= 0 && resultRef.current && !loading && !sessionExpiredRef.current) {
       doRefresh()
     }
   }, [countdown]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -50,6 +59,8 @@ export default function App() {
   async function handleGenerate() {
     setLoading(true)
     setError(null)
+    setSessionExpired(false)
+    sessionStartRef.current = Date.now()
     try {
       const dataset = buildDataset({
         ...form,
@@ -69,11 +80,25 @@ export default function App() {
     }
   }
 
+  // ── Resume an expired session ─────────────────────────────
+  async function handleResume() {
+    sessionStartRef.current = Date.now()
+    setSessionExpired(false)
+    await doRefresh()
+  }
+
   // ── Soft refresh — only rebuilds TAG 84 + re-signs ───────
   async function doRefresh() {
     const prev = resultRef.current
     const f    = formRef.current
     if (!prev) return
+
+    // Stop refreshing if the session has timed out
+    if (Date.now() - sessionStartRef.current > SESSION_TIMEOUT_MS) {
+      setSessionExpired(true)
+      return
+    }
+
     try {
       const svpBalancePaisa = Number(f.balanceRupees) * 100
       const dataset         = refreshDataset(prev.dataset, svpBalancePaisa)
@@ -119,10 +144,14 @@ export default function App() {
             result={result}
             countdown={countdown}
             refreshSecs={refreshSecs}
+            sessionExpired={sessionExpired}
+            onResume={handleResume}
+            loading={loading}
           />
         </div>
 
         <PayloadBreakdown result={result} />
+        <QRVerifier />
       </main>
     </>
   )

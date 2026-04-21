@@ -36,6 +36,11 @@ export async function sign(plaintext) {
 
 let _publicKey = null
 
+/** Force the next verify() call to re-fetch the public key from /api/public-key. */
+export function clearPublicKeyCache() {
+  _publicKey = null
+}
+
 async function getPublicKey() {
   if (_publicKey) return _publicKey
 

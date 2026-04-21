@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { validatePayload, summarise } from '../lib/validator.js'
+import { clearPublicKeyCache } from '../lib/crypto.js'
 
 const TAG_CLASS = { '81': 't81', '82': 't82', '83': 't83', '84': 't84', '85': 't85' }
 
@@ -48,17 +49,18 @@ function StatusBadge({ status }) {
   )
 }
 
-export default function PayloadBreakdown({ result }) {
-  const [tab,    setTab]    = useState('fields')
-  const [checks, setChecks] = useState(null)
+export default function PayloadBreakdown({ result, defaultOpen = true }) {
+  const [open,       setOpen]       = useState(defaultOpen)
+  const [tab,        setTab]        = useState('fields')
+  const [checks,     setChecks]     = useState(null)
   const [valRunning, setValRunning] = useState(false)
 
   useEffect(() => {
-    // Reset validation when result changes
     setChecks(null)
   }, [result])
 
   async function runValidation() {
+    clearPublicKeyCache()   // always fetch the current public key from /api/public-key
     setValRunning(true)
     try {
       const c = await validatePayload(result)
@@ -75,7 +77,17 @@ export default function PayloadBreakdown({ result }) {
 
   return (
     <div className="card breakdown-card">
-      <div className="card-title">QR Payload Breakdown</div>
+      <div
+        className="card-title"
+        onClick={() => setOpen(o => !o)}
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+      >
+        <span>QR Payload Breakdown</span>
+        <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 400 }}>{open ? '▲ Collapse' : '▼ Expand'}</span>
+      </div>
+
+      {!open && null}
+      {open && <>
 
       <div className="tabs">
         <button className={`tab ${tab === 'fields' ? 'active' : ''}`} onClick={() => setTab('fields')}>
@@ -211,6 +223,8 @@ export default function PayloadBreakdown({ result }) {
           })()}
         </div>
       )}
+
+      </>}
     </div>
   )
 }

@@ -47,7 +47,7 @@ function CountdownRing({ countdown, refreshSecs }) {
   )
 }
 
-export default function QRDisplay({ result, countdown, refreshSecs }) {
+export default function QRDisplay({ result, countdown, refreshSecs, sessionExpired, onResume, loading }) {
   const canvasRef = useRef(null)
 
   useEffect(() => {
@@ -92,9 +92,34 @@ export default function QRDisplay({ result, countdown, refreshSecs }) {
     <div className="card qr-panel">
       <div className="card-title">Generated QR Code</div>
       <span className="svp-badge">STORE VALUE PASS</span>
-      <canvas ref={canvasRef} />
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        <canvas ref={canvasRef} style={{ opacity: sessionExpired ? 0.25 : 1, transition: 'opacity 0.3s' }} />
+        {sessionExpired && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 10,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', textAlign: 'center', lineHeight: 1.4 }}>
+              Session expired<br />
+              <span style={{ fontWeight: 400, color: '#64748b' }}>10 min limit reached</span>
+            </div>
+            <button
+              onClick={onResume}
+              disabled={loading}
+              style={{
+                padding: '7px 20px', borderRadius: 8, border: 'none',
+                background: '#1a237e', color: '#fff', fontWeight: 700,
+                fontSize: 13, cursor: 'pointer',
+              }}
+            >
+              {loading ? 'Resuming…' : 'Resume'}
+            </button>
+          </div>
+        )}
+      </div>
       <span className="serial-display">{serialDisplay(serial)}</span>
-      {countdown > 0 && (
+      {!sessionExpired && countdown > 0 && (
         <CountdownRing countdown={countdown} refreshSecs={refreshSecsVal} />
       )}
       <div className="journey-card">
