@@ -47,6 +47,30 @@ export default function SVPForm({ values, onChange, onGenerate, loading }) {
         <div className="form-hint">TAG 84 QR Updated Time refreshes on this interval (min 5 s)</div>
       </div>
 
+      <div className="form-group">
+        <label>Security Scheme</label>
+        <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+          {[
+            { val: 3, label: '0x03 — RSA only', hint: 'Sign only, no encryption' },
+            { val: 4, label: '0x04 — AES + RSA', hint: 'Encrypt ticket, then sign' },
+          ].map(({ val, label, hint }) => (
+            <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 'normal' }}>
+              <input
+                type="radio"
+                name="scheme"
+                value={val}
+                checked={Number(values.scheme) === val}
+                onChange={() => onChange({ ...values, scheme: val })}
+              />
+              <span>
+                <strong>{label}</strong>
+                <span className="form-hint" style={{ marginTop: 0, display: 'block' }}>{hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <button className="btn" onClick={onGenerate} disabled={loading}>
         {loading ? '⏳ Generating…' : '⚡ Generate SVP QR'}
       </button>

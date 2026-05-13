@@ -11,9 +11,14 @@ import { CMRL } from '../constants/stations.js'
 
 // ── Helpers ──────────────────────────────────────────────
 
-/** Pad a number to a fixed-width uppercase hex string */
+/** Pad a number to a fixed-width uppercase hex string (use for fixed-width byte fields) */
 export function toHex(value, bytes) {
   return (value >>> 0).toString(16).toUpperCase().padStart(bytes * 2, '0')
+}
+
+/** Hex without leading zeros (use for all simple numeric SQDSR fields) */
+export function toHexTrim(value) {
+  return (value >>> 0).toString(16).toUpperCase().replace(/^0+/, '') || '0'
 }
 
 /** Current unix time in seconds */
@@ -61,8 +66,12 @@ export function serialDisplay(hexStr) {
 }
 
 // ── TAG 81 — QR Security (1 byte) ────────────────────────
-export function buildSecurity() {
-  const hex = toHex(SECURITY_SCHEME.RSA_SIGN, 1)
+export function buildSecurity(scheme = 3) {
+  const schemeVal = scheme === 4 ? SECURITY_SCHEME.SECURE_QR_ALPHA : SECURITY_SCHEME.RSA_SIGN
+  const hex = toHexTrim(schemeVal)
+  const desc = scheme === 4
+    ? 'Scheme 0x04 — AES-256-ECB ticket encryption + RSA-2048 / SHA-256 signing (SecureQR-Alpha)'
+    : 'Scheme 0x03 — RSA-2048 + SHA-256 digital signing, no encryption (Medium-high security)'
   return {
     tag: '81',
     label: 'QR Security',
@@ -73,7 +82,7 @@ export function buildSecurity() {
         name: 'Security Scheme',
         size: COMMON_DATA_FIELDS.LANGUAGE, // 1
         hex,
-        desc: 'Scheme 0x03 — RSA-2048 + SHA-256 digital signing, no encryption (Medium-high security)',
+        desc,
       },
     ],
   }
@@ -81,7 +90,7 @@ export function buildSecurity() {
 
 // ── TAG 82 — QR Dataset Version (1 byte) ─────────────────
 export function buildVersion() {
-  const hex = toHex(DATASET_VERSION, 1)
+  const hex = toHexTrim(DATASET_VERSION)
   return {
     tag: '82',
     label: 'QR Dataset Version',
@@ -107,19 +116,19 @@ export function buildCommonData({ txnRef, mobile }) {
     {
       name: 'Language',
       size: 1,
-      hex:  toHex(LANG.ENGLISH, 1),
+      hex:  toHexTrim(LANG.ENGLISH),
       desc: '0x00 = English (Appendix IV Table AN4)',
     },
     {
       name: 'TG ID',
       size: 2,
-      hex:  toHex(CMRL.TG_ID, 2),
+      hex:  toHexTrim(CMRL.TG_ID),
       desc: `CMRL Ticket Generator (0x${toHex(CMRL.TG_ID, 2)})`,
     },
     {
       name: 'Transaction Type',
       size: 1,
-      hex:  toHex(TXN_TYPE.PURCHASE, 1),
+      hex:  toHexTrim(TXN_TYPE.PURCHASE),
       desc: '0x41 = QR Purchase (payment mode b010, QR type b00001)',
     },
     {
@@ -131,13 +140,13 @@ export function buildCommonData({ txnRef, mobile }) {
     {
       name: 'QR Gen Datetime',
       size: 4,
-      hex:  toHex(genDt, 4),
+      hex:  toHexTrim(genDt),
       desc: `Unix epoch ${genDt} → ${new Date(genDt * 1000).toUTCString()}`,
     },
     {
       name: 'Requester ID (App ID)',
       size: 4,
-      hex:  toHex(1, 4),
+      hex:  toHexTrim(1),
       desc: 'App ID = 0x00000001 (mobile client)',
     },
     {
@@ -149,19 +158,19 @@ export function buildCommonData({ txnRef, mobile }) {
     {
       name: 'Total Fare',
       size: 4,
-      hex:  toHex(0, 4),
+      hex:  toHexTrim(0),
       desc: 'SVP — fare determined at exit by AFC, not fixed at QR generation',
     },
     {
       name: 'Booking Latitude',
       size: 3,
-      hex:  toHex(0, 3),
+      hex:  toHexTrim(0),
       desc: 'Not provided (web client)',
     },
     {
       name: 'Booking Longitude',
       size: 3,
-      hex:  toHex(0, 3),
+      hex:  toHexTrim(0),
       desc: 'Not provided (web client)',
     },
     {
@@ -182,7 +191,7 @@ export function buildCommonData({ txnRef, mobile }) {
 export function buildDynamicData({ svpBalancePaisa }) {
   // QR Status (3 bytes):
   //   Operator ID [2B] | Ticket Index [4 bits=1] | QR State [4 bits=1 Active]
-  const qrStatus = toHex(CMRL.OPERATOR_ID, 2) + toHex((1 << 4) | QR_STATE.ACTIVE, 1)
+  const qrStatus = toHexTrim(CMRL.OPERATOR_ID) + toHexTrim((1 << 4) | QR_STATE.ACTIVE)
 
   // Op-specific dynamic data (19 bytes): balance [4B] + reserved [15B]
   const opDyn = toHex(svpBalancePaisa, 4) + toHex(0, 15)
@@ -191,7 +200,7 @@ export function buildDynamicData({ svpBalancePaisa }) {
     {
       name: 'QR Updated Time',
       size: 4,
-      hex:  toHex(nowSec(), 4),
+      hex:  toHexTrim(nowSec()),
       desc: 'Current unix timestamp — app refreshes every 30 s to prevent QR copying',
     },
     {
@@ -238,55 +247,55 @@ function buildTicket({ svpBalancePaisa, svpAccountId }) {
     {
       name: 'Group Size',
       size: 1,
-      hex:  toHex(1, 1),
+      hex:  toHexTrim(1),
       desc: 'Single passenger',
     },
     {
       name: 'Source Station',
       size: 2,
-      hex:  toHex(CMRL.ANY_STATION, 2),
-      desc: 'ANY (0x0000) — determined by AFC entry gate at tap-in',
+      hex:  toHexTrim(CMRL.SVP_STATION),
+      desc: 'SVP open journey (0xFF = 255) — CMRL operator-specific code',
     },
     {
       name: 'Destination Station',
       size: 2,
-      hex:  toHex(CMRL.ANY_STATION, 2),
-      desc: 'ANY (0x0000) — open journey, determined by AFC exit gate',
+      hex:  toHexTrim(CMRL.SVP_STATION),
+      desc: 'SVP open journey (0xFF = 255) — CMRL operator-specific code',
     },
     {
       name: 'Activation Datetime',
       size: 4,
-      hex:  toHex(actDt, 4),
+      hex:  toHexTrim(actDt),
       desc: new Date(actDt * 1000).toUTCString(),
     },
     {
       name: 'Product ID',
       size: 2,
-      hex:  toHex(CMRL.PRODUCT_SVP, 2),
-      desc: `0x${toHex(CMRL.PRODUCT_SVP, 2)} = Store Value Pass (SVP)`,
+      hex:  toHexTrim(CMRL.PRODUCT_SVP),
+      desc: `0x${toHex(CMRL.PRODUCT_SVP, 2)} = Store Value Pass (SVP) — CMRL product ID 105`,
     },
     {
       name: 'Service ID',
       size: 1,
-      hex:  toHex(CMRL.SERVICE_ID, 1),
+      hex:  toHexTrim(CMRL.SERVICE_ID),
       desc: '0x01 = Metro Rail service',
     },
     {
       name: 'Ticket Fare',
       size: 4,
-      hex:  toHex(0, 4),
-      desc: 'SVP — fare not fixed at generation, deducted by AFC at exit based on journey',
+      hex:  toHexTrim(svpBalancePaisa),
+      desc: `SVP wallet balance: ₹${svpBalancePaisa / 100} — AFC deducts journey fare at exit`,
     },
     {
       name: 'Validity',
       size: 2,
-      hex:  toHex(SVP_DEFAULTS.VALIDITY_MINS, 2),
+      hex:  toHexTrim(SVP_DEFAULTS.VALIDITY_MINS),
       desc: `${SVP_DEFAULTS.VALIDITY_MINS} minutes = 8 hours`,
     },
     {
       name: 'Duration',
       size: 2,
-      hex:  toHex(SVP_DEFAULTS.DURATION_MINS, 2),
+      hex:  toHexTrim(SVP_DEFAULTS.DURATION_MINS),
       desc: `${SVP_DEFAULTS.DURATION_MINS} minutes — max no-exit timeout per journey`,
     },
     {
@@ -304,14 +313,15 @@ function buildTicket({ svpBalancePaisa, svpAccountId }) {
 }
 
 // ── TAG 85 — QR Ticket Block (Dynamic Block) ─────────────
-export function buildTicketBlock(params) {
-  const opId    = toHex(CMRL.OPERATOR_ID, 2)
-  const noTkts  = toHex(1, 1)
+export function buildTicketBlock(params, scheme = 3) {
+  const opId   = toHexTrim(CMRL.OPERATOR_ID)
+  const noTkts = toHexTrim(1)
   // Validator Info (1 byte):
   //   MSN (bits 7-4) = scanner capabilities — at least one MUST be set (≥ 0x10)
-  //   Bit 4 = Camera scanner (default). Table 5.10: 0x10 = Camera, unencrypted.
-  //   bit 0 = 0 → ticket NOT encrypted (Scheme 0x03 has no ticket encryption)
-  const valInfo = toHex(0x10, 1)
+  //   Bit 4 = Camera scanner. Bit 0 = encryption flag (1 = encrypted, Scheme 0x04)
+  //   0x10 = Camera, unencrypted (Scheme 0x03)
+  //   0x11 = Camera, AES-encrypted (Scheme 0x04)
+  const valInfo = toHexTrim(scheme === 4 ? 0x11 : 0x10)
   const ticket  = buildTicket(params)
 
   return {
@@ -338,7 +348,7 @@ export function refreshDataset(existingDataset, svpBalancePaisa) {
 
 // ── Assemble full dataset ─────────────────────────────────
 export function buildDataset(formValues) {
-  const { balanceRupees, mobile, txnRef } = formValues
+  const { balanceRupees, mobile, txnRef, scheme = 3 } = formValues
 
   const svpBalancePaisa = balanceRupees * 100
   const svpAccountId    = Math.floor(Math.random() * 0xFFFF) + 1
@@ -346,10 +356,10 @@ export function buildDataset(formValues) {
   const params = { svpBalancePaisa, svpAccountId, mobile, txnRef }
 
   return {
-    security:    buildSecurity(),
+    security:    buildSecurity(scheme),
     version:     buildVersion(),
     commonData:  buildCommonData(params),
     dynamicData: buildDynamicData(params),
-    ticketBlock: buildTicketBlock(params),
+    ticketBlock: buildTicketBlock(params, scheme),
   }
 }

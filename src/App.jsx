@@ -4,7 +4,7 @@ import QRDisplay from './components/QRDisplay.jsx'
 import PayloadBreakdown from './components/PayloadBreakdown.jsx'
 import QRVerifier from './components/QRVerifier.jsx'
 import { buildDataset, refreshDataset } from './lib/dataset.js'
-import { serialise, assembleFinal } from './lib/sqdsr.js'
+import { serialise, assembleFinal, buildDynamicString } from './lib/sqdsr.js'
 import { sign } from './lib/crypto.js'
 
 const DEFAULT_FORM = {
@@ -12,6 +12,7 @@ const DEFAULT_FORM = {
   mobile:        '9876543210',
   txnRef:        'UPI20260415123456789012',
   refreshSecs:   30,
+  scheme:        3,
 }
 
 // Stop auto-refresh after this many minutes of inactivity to avoid runaway Cloud Function charges.
@@ -62,16 +63,19 @@ export default function App() {
     setSessionExpired(false)
     sessionStartRef.current = Date.now()
     try {
+      const scheme  = Number(form.scheme) || 3
       const dataset = buildDataset({
         ...form,
         balanceRupees: Number(form.balanceRupees),
+        scheme,
       })
 
-      const plaintext    = serialise(dataset)
-      const signature    = await sign(plaintext)
-      const finalPayload = assembleFinal(plaintext, signature)
+      const plaintext                   = serialise(dataset)
+      const { signature, signableStr }  = await sign(plaintext, scheme)
+      const dynamicStr                  = buildDynamicString(dataset.dynamicData)
+      const finalPayload                = assembleFinal(signableStr, signature, dynamicStr)
 
-      setResult({ dataset, plaintext, signature, finalPayload })
+      setResult({ dataset, signableStr, signature, dynamicStr, finalPayload })
     } catch (e) {
       console.error(e)
       setError(e.message)
@@ -102,10 +106,10 @@ export default function App() {
     try {
       const svpBalancePaisa = Number(f.balanceRupees) * 100
       const dataset         = refreshDataset(prev.dataset, svpBalancePaisa)
-      const plaintext       = serialise(dataset)
-      const signature       = await sign(plaintext)
-      const finalPayload    = assembleFinal(plaintext, signature)
-      setResult({ dataset, plaintext, signature, finalPayload })
+      // Dynamic data is unsigned — refresh locally without calling the signing Cloud Function
+      const dynamicStr      = buildDynamicString(dataset.dynamicData)
+      const finalPayload    = assembleFinal(prev.signableStr, prev.signature, dynamicStr)
+      setResult({ ...prev, dataset, dynamicStr, finalPayload })
 
       // Reset countdown to the current interval setting
       const secs = Math.max(5, Number(f.refreshSecs) || 30)
@@ -126,7 +130,7 @@ export default function App() {
         <div className="header-divider" />
         <div>
           <h1>Chennai One — SVP QR Generator</h1>
-          <p>CDAC QR Ticketing Spec v1.0 · Part I (Dataset) + Part II (SecureQR Scheme 0x03 — RSA-2048 / SHA-256)</p>
+          <p>CDAC QR Ticketing Spec v1.0 · Part I (Dataset) + Part II (Scheme 0x03 RSA-2048 / SHA-256 · Scheme 0x04 AES-256-ECB + RSA)</p>
         </div>
       </header>
 
@@ -151,7 +155,7 @@ export default function App() {
         </div>
 
         <PayloadBreakdown result={result} />
-        <QRVerifier />
+        <QRVerifier result={result} />
       </main>
     </>
   )

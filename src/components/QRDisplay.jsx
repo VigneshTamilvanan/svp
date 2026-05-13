@@ -75,8 +75,13 @@ export default function QRDisplay({ result, countdown, refreshSecs, sessionExpir
   const refreshSecsVal = refreshSecs || 30
 
   const { dataset, finalPayload } = result
-  const serial = dataset.commonData.serial
-  const bal    = dataset.dynamicData.fields.find(f => f.name === 'Op-specific Dynamic Data')
+  const serial    = dataset.commonData.serial
+  const bal       = dataset.ticketBlock.ticket.find(f => f.name === 'Op-specific Ticket Data')
+  const schemeHex = dataset.security.fields[0].hex
+  const scheme    = parseInt(schemeHex, 16)
+  const schemeLabel = scheme === 4
+    ? 'RSA-2048 + AES-256-ECB — Scheme 0x04'
+    : 'RSA-2048 / SHA-256 — Scheme 0x03'
 
   const infoRows = [
     { label: 'Journey',         value: 'ANY → ANY (open SVP)',         color: 'blue'  },
@@ -85,7 +90,7 @@ export default function QRDisplay({ result, countdown, refreshSecs, sessionExpir
     { label: 'Validity',        value: `${SVP_DEFAULTS.VALIDITY_MINS} min (8 hrs)`    },
     { label: 'Journey Timeout', value: `${SVP_DEFAULTS.DURATION_MINS} min — max fare on timeout` },
     { label: 'Product',         value: `SVP (0x${toHex(CMRL.PRODUCT_SVP, 2)})`        },
-    { label: 'Security',        value: 'RSA-2048 / SHA-256 — Scheme 0x03'             },
+    { label: 'Security',        value: schemeLabel                                     },
   ]
 
   return (

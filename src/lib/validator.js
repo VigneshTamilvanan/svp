@@ -29,21 +29,23 @@ function warn(id, section, description, detail = '') {
 // ── Main validator ───────────────────────────────────────────
 
 /**
- * @param {object} result — { dataset, plaintext, signature, finalPayload }
+ * @param {object} result — { dataset, signableStr, signature, finalPayload }
  * @returns {Promise<CheckResult[]>}
  */
 export async function validatePayload(result) {
   const checks = []
-  const { dataset, plaintext, signature, finalPayload } = result
+  const { dataset, signableStr, signature, finalPayload } = result
   const { security, version, commonData, dynamicData, ticketBlock } = dataset
 
   // ── TAG 81: QR Security ────────────────────────────────
   const secByte = parseInt(security.fields[0].hex, 16)
+  const validSchemes = [SECURITY_SCHEME.RSA_SIGN, SECURITY_SCHEME.SECURE_QR_ALPHA]
+  const schemeLabels = { [SECURITY_SCHEME.RSA_SIGN]: '0x03 (RSA-2048 + SHA-256)', [SECURITY_SCHEME.SECURE_QR_ALPHA]: '0x04 (AES-256-ECB + RSA-2048)' }
   checks.push(
-    secByte === SECURITY_SCHEME.RSA_SIGN
-      ? pass('S01', 'TAG 81 §5.1', 'Security scheme = 0x03 (RSA-2048 + SHA-256)',
+    validSchemes.includes(secByte)
+      ? pass('S01', 'TAG 81 §5.1', `Security scheme = ${schemeLabels[secByte]}`,
              `Hex: ${security.fields[0].hex}`)
-      : fail('S01', 'TAG 81 §5.1', 'Security scheme must be 0x03',
+      : fail('S01', 'TAG 81 §5.1', 'Security scheme must be 0x03 or 0x04',
              `Got: 0x${security.fields[0].hex}`)
   )
 
@@ -133,27 +135,32 @@ export async function validatePayload(result) {
       : fail('D01', 'TAG 84 §5.4', 'Dynamic Data must be exactly 32 bytes', `Got: ${ddBytes}`)
   )
 
-  // QR State in QR Status (last nibble of 3-byte field)
+  // QR Status — empty per spec Table 5.14 (APP renders as empty, gate reads from ticket block)
   const qrStatusHex = dynamicData.fields.find(f => f.name === 'QR Status')?.hex ?? ''
-  const qrStateByte = parseInt(qrStatusHex.slice(4), 16) & 0x0F
   checks.push(
-    qrStateByte === QR_STATE.ACTIVE
-      ? pass('D02', 'TAG 84 Table 5.6', `QR State = ${QR_STATE.ACTIVE} (Active)`,
-             `Status hex: ${qrStatusHex}`)
-      : fail('D02', 'TAG 84 Table 5.6', 'QR State must be 1 (Active) at generation time',
-             `Got state nibble: ${qrStateByte}`)
+    qrStatusHex === ''
+      ? pass('D02', 'TAG 84 Table 5.14', 'QR Status field empty — correct per spec (APP-rendered)',
+             'Spec Table 5.14 shows status as empty in dynamic block')
+      : warn('D02', 'TAG 84 Table 5.14', 'QR Status field has value — spec expects empty',
+             `Got: 0x${qrStatusHex}`)
   )
 
-  // Op-specific Dynamic Data: first 4 bytes = SVP balance (should be > MIN_BALANCE in paisa)
-  const opDynHex = dynamicData.fields.find(f => f.name === 'Op-specific Dynamic Data')?.hex ?? ''
-  const balancePaisa = parseInt(opDynHex.slice(0, 8), 16)
-  checks.push(
-    balancePaisa >= SVP_DEFAULTS.MIN_BALANCE
-      ? pass('D03', 'TAG 84 + Business Rule', `SVP balance ≥ ₹50 minimum (₹${balancePaisa / 100})`,
-             `Balance: ${balancePaisa} paisa`)
-      : fail('D03', 'TAG 84 + Business Rule', `SVP balance below ₹50 minimum floor`,
-             `Balance: ${balancePaisa} paisa (min: ${SVP_DEFAULTS.MIN_BALANCE} paisa)`)
-  )
+  // SVP balance check — only for unencrypted scheme (0x04 ciphertext not readable)
+  if (!ticketBlock.encrypted) {
+    const opTktDataHex = ticketBlock.ticket.find(f => f.name === 'Op-specific Ticket Data')?.hex ?? ''
+    const balancePaisa = parseInt(opTktDataHex.slice(0, 8), 16)
+    checks.push(
+      balancePaisa >= SVP_DEFAULTS.MIN_BALANCE
+        ? pass('D03', 'TAG 85 + Business Rule', `SVP balance ≥ ₹50 minimum (₹${balancePaisa / 100})`,
+               `Balance from ticket block op-data: ${balancePaisa} paisa`)
+        : fail('D03', 'TAG 85 + Business Rule', `SVP balance below ₹50 minimum floor`,
+               `Balance: ${balancePaisa} paisa (min: ${SVP_DEFAULTS.MIN_BALANCE} paisa)`)
+    )
+  } else {
+    checks.push(pass('D03', 'TAG 85 + Business Rule',
+      'SVP balance check skipped — ticket data AES-encrypted (Scheme 0x04)',
+      'Balance not verifiable from ciphertext; validated by AFC at tap-in'))
+  }
 
   // ── TAG 85: Ticket Block ───────────────────────────────
 
@@ -187,22 +194,31 @@ export async function validatePayload(result) {
              'At least Camera (Bit4=1) or Laser (Bit5=1) must be set')
   )
 
-  // Encryption bit (bit0) must be 0 for Scheme 0x03
-  const encBit = valInfoByte & 0x01
+  // Encryption bit (bit0): must match scheme — 0 for 0x03, 1 for 0x04
+  const encBit        = valInfoByte & 0x01
+  const expectEncBit  = secByte === SECURITY_SCHEME.SECURE_QR_ALPHA ? 1 : 0
   checks.push(
-    encBit === 0
-      ? pass('T04', 'TAG 85 Table 5.10', 'Validator Info encryption bit = 0 (not encrypted)',
-             'Correct for Scheme 0x03 (RSA sign only, no AES)')
-      : fail('T04', 'TAG 85 Table 5.10', 'Encryption bit must be 0 for Scheme 0x03',
-             'Scheme 0x03 does not encrypt ticket data')
+    encBit === expectEncBit
+      ? pass('T04', 'TAG 85 Table 5.10',
+             encBit === 1 ? 'Validator Info encryption bit = 1 (AES-encrypted, Scheme 0x04)'
+                          : 'Validator Info encryption bit = 0 (not encrypted, Scheme 0x03)',
+             `Full byte: 0x${ticketBlock.valInfo}`)
+      : fail('T04', 'TAG 85 Table 5.10',
+             `Encryption bit mismatch — Scheme 0x0${secByte} expects encBit=${expectEncBit}`,
+             `Got encBit=${encBit} from valInfo 0x${ticketBlock.valInfo}`)
   )
 
-  // Ticket: 28 bytes
-  const tktBytes = ticketBlock.ticket.reduce((a, f) => a + f.size, 0)
+  // Ticket: 28 bytes for plain (0x03), skip for encrypted (0x04)
+  const tktBytes = ticketBlock.encrypted
+    ? null
+    : ticketBlock.ticket.reduce((a, f) => a + (f.size ?? 0), 0)
   checks.push(
-    tktBytes === 28
-      ? pass('T05', 'TAG 85 Table 5.11', 'Ticket Info = 28 bytes', `Sum: ${tktBytes}`)
-      : fail('T05', 'TAG 85 Table 5.11', 'Ticket Info must be exactly 28 bytes', `Got: ${tktBytes}`)
+    ticketBlock.encrypted
+      ? pass('T05', 'TAG 85 Table 5.11', 'Ticket data AES-encrypted (Scheme 0x04) — byte count not verifiable',
+             `Base64 ciphertext length: ${ticketBlock.encryptedB64?.length ?? '?'} chars`)
+      : tktBytes === 28
+        ? pass('T05', 'TAG 85 Table 5.11', 'Ticket Info = 28 bytes', `Sum: ${tktBytes}`)
+        : fail('T05', 'TAG 85 Table 5.11', 'Ticket Info must be exactly 28 bytes', `Got: ${tktBytes}`)
   )
 
   // Ticket field order per Table 5.11
@@ -224,9 +240,9 @@ export async function validatePayload(result) {
   const prodHex = ticketBlock.ticket.find(f => f.name === 'Product ID')?.hex
   checks.push(
     prodHex === toHex(CMRL.PRODUCT_SVP, 2)
-      ? pass('T07', 'TAG 85 §5.5', `Product ID = 0x${toHex(CMRL.PRODUCT_SVP, 2)} (SVP)`,
+      ? pass('T07', 'TAG 85 §5.5', `Product ID = 0x${toHex(CMRL.PRODUCT_SVP, 2)} (SVP — CMRL 105)`,
              `Hex: ${prodHex}`)
-      : fail('T07', 'TAG 85 §5.5', 'Product ID must be SVP (0x0005)',
+      : fail('T07', 'TAG 85 §5.5', `Product ID must be SVP (0x${toHex(CMRL.PRODUCT_SVP, 2)} = 105)`,
              `Got: 0x${prodHex}`)
   )
 
@@ -253,45 +269,45 @@ export async function validatePayload(result) {
   )
 
   // ── SQDSR Format ────────────────────────────────────────
-  const sqdsr = /^\{[^}]+\}\|\{[^}]+\}\|\{\([^)]+\)\}$/.test(plaintext)
+  // Format: #sig#QR_SVC#QR_Tkt_Block#QR_Dynamic_Data#
+  const sqdsr = /^#[^#]+#\{[^}]+\{[^}]+\}\{[^}]+\}\}#\{\(<.+>\)\}#\{[^}]+\}#$/.test(finalPayload)
   checks.push(
     sqdsr
-      ? pass('F01', 'Part II Appendix I', 'SQDSR structure: {SVC}|{DYN}|{(TKT)} — valid',
-             `Length: ${plaintext.length} chars`)
-      : fail('F01', 'Part II Appendix I', 'SQDSR structure invalid',
-             `Payload: ${plaintext.slice(0, 80)}…`)
+      ? pass('F01', 'Part II Table 5.14', 'SQDSR structure: #sig#QR_SVC#QR_Tkt_Block#QR_Dyn# — valid',
+             `Length: ${finalPayload.length} chars`)
+      : fail('F01', 'Part II Table 5.14', 'SQDSR structure invalid — expected #sig#svc#tkt#dyn#',
+             `Payload: ${finalPayload.slice(0, 80)}…`)
   )
 
-  // Pipe-separated SVC fields (TAG 81, 82, 11 common data fields = 13 total)
-  const svcMatch = plaintext.match(/^\{([^}]+)\}/)
+  // QR_SVC nested structure {sec{ver}{11 common fields}}
+  const svcMatch = signableStr?.match(/^\{(\w+)\{(\w+)\}\{([^}]+)\}\}/)
   if (svcMatch) {
-    const svcParts = svcMatch[1].split('|')
+    const commonParts = svcMatch[3].split('|')
     checks.push(
-      svcParts.length === 13
-        ? pass('F02', 'Part II Appendix I', `SVC block has 13 pipe-delimited fields (81+82+11 common)`,
-               `Fields: ${svcParts.length}`)
-        : fail('F02', 'Part II Appendix I', `SVC block should have 13 fields`,
-               `Got: ${svcParts.length}`)
+      commonParts.length === 11
+        ? pass('F02', 'Part II §5.1.3', `QR_SVC has 11 common data fields in nested {sec{ver}{fields}} format`,
+               `Fields: ${commonParts.length}`)
+        : fail('F02', 'Part II §5.1.3', `QR_SVC common fields: expected 11, got ${commonParts.length}`,
+               `Raw: ${svcMatch[3].slice(0, 60)}…`)
     )
   }
 
-  // Final payload ends with |{SIG:…}
+  // Final payload starts and ends with # (Table 5.14)
   checks.push(
-    finalPayload.includes('|{SIG:')
-      ? pass('F03', 'Part II §5', 'Final payload contains signature block |{SIG:…}',
-             `Sig prefix: …${finalPayload.slice(-20)}`)
-      : fail('F03', 'Part II §5', 'Signature block |{SIG:…} missing from final payload')
+    finalPayload.startsWith('#') && finalPayload.endsWith('#')
+      ? pass('F03', 'Part II Table 5.14', 'Final payload delimited by # on both ends')
+      : fail('F03', 'Part II Table 5.14', 'Final payload must start and end with #')
   )
 
   // ── Signature Verification ──────────────────────────────
   try {
-    const valid = await verify(plaintext, signature)
+    const valid = await verify(signableStr, signature)
     checks.push(
       valid
         ? pass('SIG1', 'Part II §5 RSA-2048', 'Signature verifies against generated public key',
-               'RSASSA-PKCS1-v1_5 / SHA-256 ✓')
+               'RSASSA-PKCS1-v1_5 / SHA-256 ✓ — signed scope: QR_SVC#QR_Tkt_Block')
         : fail('SIG1', 'Part II §5 RSA-2048', 'Signature verification FAILED',
-               'RSA signature does not match plaintext')
+               'RSA signature does not match QR_SVC#QR_Tkt_Block')
     )
   } catch (e) {
     checks.push(fail('SIG1', 'Part II §5 RSA-2048', 'Signature verification threw an error', e.message))

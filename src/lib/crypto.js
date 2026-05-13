@@ -1,33 +1,36 @@
 /**
- * SecureQR Crypto — Part II §5, Security Scheme 0x03
+ * SecureQR Crypto — Part II §5, Security Schemes 0x03 and 0x04
  *
- * Scheme 0x03: RSA-based security
- *   - RSA-2048 key pair (RSASSA-PKCS1-v1_5 / SHA-256)
- *   - Signing is performed server-side by the /api/signQR Cloud Function
- *   - The private key lives in Google Cloud Secret Manager — never in the browser
- *   - The public key is fetched live from /api/public-key (rotates daily)
+ * Scheme 0x03: RSA-2048 + SHA-256 signing, no encryption
+ * Scheme 0x04: AES-256-ECB ticket encryption + RSA-2048 signing
+ *   - Both schemes sign server-side via /api/signQR Cloud Function
+ *   - Private key and AES key live in Google Cloud Secret Manager — never in the browser
+ *   - Public key fetched live from /api/public-key (rotates daily)
  */
 
 // ── Signing (server-side) ─────────────────────────────────────────────────────
 
 /**
  * Sign an SQDSR plaintext string via the Cloud Function.
- * The private key never leaves the server.
- * @param {string} plaintext
- * @returns {Promise<string>} Base64 RSA-2048 signature
+ * For scheme 4, the server AES-encrypts the ticket block before signing.
+ * Returns { signature, signableStr } — signableStr may differ from plaintext
+ * when scheme 4 is used (ticket fields replaced with Base64 ciphertext).
+ * @param {string} plaintext  QR_SVC#QR_Tkt_Block (ticket fields in plain [...])
+ * @param {number} scheme     3 (default) or 4
+ * @returns {Promise<{signature: string, signableStr: string}>}
  */
-export async function sign(plaintext) {
+export async function sign(plaintext, scheme = 3) {
   const res = await fetch('/api/signQR', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ plaintext }),
+    body:    JSON.stringify({ plaintext, scheme }),
   })
   if (!res.ok) {
     const msg = await res.text().catch(() => res.statusText)
     throw new Error(`Signing failed (${res.status}): ${msg}`)
   }
-  const { signature } = await res.json()
-  return signature
+  const { signature, signableStr } = await res.json()
+  return { signature, signableStr }
 }
 
 // ── Public key (fetched live from /api/public-key, cached per session) ────────

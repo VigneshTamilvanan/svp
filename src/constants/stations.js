@@ -8,8 +8,8 @@ export const CMRL = {
   TG_ID:       0x0001,   // Ticket Generator ID
   OPERATOR_ID: 0x0087,   // Chennai Metro Rail Limited
   SERVICE_ID:  0x01,     // Metro Rail service
-  PRODUCT_SVP: 0x0005,   // Store Value Pass product ID
-  ANY_STATION: 0x0000,   // Open journey — src/dst not fixed at QR generation for SVP
+  PRODUCT_SVP: 0x0069,   // Store Value Pass product ID (CMRL-assigned: 105 decimal)
+  SVP_STATION: 0x00FF,   // SVP open journey station code (CMRL-specific: 255)
 }
 
 export const LINE = {

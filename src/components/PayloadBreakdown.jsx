@@ -72,7 +72,7 @@ export default function PayloadBreakdown({ result, defaultOpen = true }) {
 
   if (!result) return null
 
-  const { dataset, plaintext, finalPayload } = result
+  const { dataset, signableStr, finalPayload } = result
   const { security, version, commonData, dynamicData, ticketBlock } = dataset
 
   return (
@@ -133,23 +133,23 @@ export default function PayloadBreakdown({ result, defaultOpen = true }) {
             <SectionRow label="▶ TAG 85 — QR Ticket Block — Dynamic Block <span>(mandatory)</span>" />
             <FieldRow tag="85" field={{ name: 'Operator ID',    size: 2, hex: ticketBlock.opId,    desc: 'CMRL — Chennai Metro Rail Limited' }} />
             <FieldRow tag="85" field={{ name: 'No of Tickets',  size: 1, hex: ticketBlock.noTkts,  desc: '1 ticket in this SVP QR' }} />
-            <FieldRow tag="85" field={{ name: 'Validator Info', size: 1, hex: ticketBlock.valInfo, desc: 'MSN = scanner options | bit0 = 0 (not encrypted)' }} />
-            <SubRow label="↳ Ticket Info 1 — 28 bytes" />
+            <FieldRow tag="85" field={{ name: 'Validator Info', size: 1, hex: ticketBlock.valInfo, desc: `MSN = scanner options | bit0 = ${parseInt(ticketBlock.valInfo, 16) & 1} (${(parseInt(ticketBlock.valInfo, 16) & 1) ? 'AES-encrypted' : 'not encrypted'})` }} />
+            <SubRow label={ticketBlock.encrypted ? '↳ Ticket Info 1 — AES-256-ECB encrypted' : '↳ Ticket Info 1 — 28 bytes'} />
             {ticketBlock.ticket.map(f => (
               <FieldRow key={f.name} tag="85" field={{ ...f, name: `&nbsp;&nbsp;↳ ${f.name}` }} />
             ))}
 
             {/* Signature */}
-            <SectionRow label="▶ Digital Signature — RSA-2048 + SHA-256 (Base64, ~172 chars)" />
-            <FieldRow tag="SIG" field={{ name: 'RSA Signature', size: 172, hex: '(see Raw tab)', desc: 'RSASSA-PKCS1-v1_5 over SQDSR plaintext → Base64 encoded and appended' }} />
+            <SectionRow label={`▶ Digital Signature — RSA-2048 + SHA-256${ticketBlock.encrypted ? ' (signed over AES-encrypted ticket)' : ''} (Base64, ~172 chars)`} />
+            <FieldRow tag="SIG" field={{ name: 'RSA Signature', size: 172, hex: '(see Raw tab)', desc: `RSASSA-PKCS1-v1_5 over QR_SVC#QR_Tkt_Block → Base64${ticketBlock.encrypted ? ' — ticket fields AES-encrypted before signing' : ''}` }} />
           </tbody>
         </table>
       )}
 
       {tab === 'raw' && (
         <div>
-          <div className="raw-label">SQDSR Plaintext (before signature):</div>
-          <pre className="raw-box">{plaintext}</pre>
+          <div className="raw-label">Signable String (QR_SVC#QR_Tkt_Block — what RSA signs):</div>
+          <pre className="raw-box">{signableStr}</pre>
           <div className="raw-label">Final QR Payload (SQDSR + RSA Signature):</div>
           <pre className="raw-box">{finalPayload}</pre>
         </div>
